@@ -1,0 +1,221 @@
+#!/usr/bin/env python
+import os
+import sys
+import boto.ec2
+import getopt
+import pickle
+import time
+import subprocess
+import shlex
+
+# Global cache file
+cache_file='/tmp/ssh-ec2.cache'
+
+def check_cache():
+    if not ( os.path.isfile(cache_file) ):
+        populate_cache()
+
+    # Calculate file age
+    stat = os.stat(cache_file)
+    fileage = int(stat.st_mtime)
+    now = int(time.time())
+    delta = now - fileage
+
+    if (delta > 172800 ):
+        populate_cache()
+        return True
+    else:
+        return False
+
+def populate_cache():
+ 
+    print >>sys.stderr, 'Please wait while we populate the cache'
+
+    # Open file for writing
+    cache_file_fh = open(cache_file, 'w+')
+
+    cache = []
+
+    ids_by_tag = {}
+    dns_by_id = {}
+    name_tag={}
+    tags={}
+    server_count=0
+
+    regions = boto.ec2.regions()
+
+    for region in regions:
+        conn = region.connect()
+        reservations = conn.get_all_instances()
+        ftags=conn.get_all_tags()
+
+        print 'Walking region ' + str(region.name)
+
+        for tag in ftags:
+             tag=str(tag)
+             tag = tag.split(':')[1]
+             if tag not in tags:
+                   tags[tag] = tag
+
+        for reservation in reservations:
+            for instance in reservation.instances:
+    
+                # If instance is not in a running state we don't care about it
+                if (instance.state != 'running'):
+                             continue
+    
+                # For each tag we check if server has it
+                for tag in tags:
+                    # Does this server have the tag
+                    if instance.tags.get(tag):
+                        value = instance.tags.get(tag)
+                        key=tag.lower() + ':' + value.lower()
+    
+                        if key not in ids_by_tag:
+                            ids_by_tag[key]=instance.id
+                        else:
+                            ids_by_tag[key]=ids_by_tag[key] + ',' +  instance.id
+    
+                server_count+=1
+
+                dns_by_id[instance.id]=instance.public_dns_name
+
+                # Special handling of the Name TAG 
+                if instance.tags.get("Name"):
+                    name_tag[instance.id]=instance.tags.get("Name")
+                elif instance.tags.get("name"):
+                    name_tag[instance.id]=instance.tags.get("name")
+                else:
+                    name_tag[instance.id]=None
+
+    # For each instance we end up with to dictionaries
+    # Dont change the order!
+    cache.append(ids_by_tag)
+    cache.append(dns_by_id)
+    cache.append(name_tag)
+
+    pickle.dump(cache, cache_file_fh)
+    cache_file_fh.close()
+
+    if (server_count == 0):
+        print >>sys.stderr, 'No servers found!'
+	sys.exit(1)
+    else:
+        print >>sys.stderr, 'Cache populated - ' + str(server_count) + ' servers found'
+
+# Get instances
+def instance_lookup(stags):
+    stags=stags.replace(' ', '')
+
+    cache_file_fh = open(cache_file, 'rb')
+
+    cache = pickle.load(cache_file_fh)
+    cache_file_fh.close()
+
+    ids_by_tag=cache[0]
+    dns_by_id=cache[1]
+    name_by_id=cache[2]
+
+    ids_by_match={}
+
+    servers={}
+    server_name={}
+
+    # tag can look like muu:cow or muu:cow,badger:snake
+    stags = dict(tag.split(":") for tag in stags.split(","))
+
+    for tag, value in stags.iteritems():
+        match=tag + ':' + value
+        if match in ids_by_tag:
+            # Make a dict of ids found 
+            for id in ids_by_tag[match].split(","):
+                # If found more that once note that
+                if id in ids_by_match:
+                    ids_by_match[id] = (ids_by_match[id] + 1)
+                else:
+                    ids_by_match[id] = 1
+
+
+    for id, count in ids_by_match.iteritems():
+        if count == len(stags):
+            servers[id] = dns_by_id[id]
+            server_name[id]=name_by_id[id]
+
+    return (servers, server_name )
+
+def usage():
+    print >>sys.stderr, 'Usage:'
+    print >>sys.stderr, '    ' + sys.argv[0] + " --tag 'name:host1,environmet:testing'\tConnect to EC2 instance specified by tag(s)"
+    print >>sys.stderr, '    ' + sys.argv[0] + " --update-cache\tUpdate the cache"
+    sys.exit(1)
+
+def main():
+
+    if (len(sys.argv) < 2):
+        usage()
+
+    try:
+        opts, args = getopt.getopt(sys.argv[1:3], '', ['help', 'update-cache', 'tag='])
+    except getopt.GetoptError, err:
+        print >>sys.stderr, str(err) 
+        return 1
+
+    for o, a in opts:
+        if o in ('-h', '--help'):
+            usage()
+        elif o in ('-z', '--tag'):
+            tags=a.lower()
+            if ':' not in tags:
+                print >>sys.stderr, 'Invalid tag provided...'
+                usage()
+        elif o in ('--update-cache'):
+            populate_cache()
+            sys.exit(0)
+
+    # Build arguments for ssh
+    post_ssh_args=''
+    for arg in sys.argv[3:]:
+         post_ssh_args += arg + ' '
+
+    check_cache()
+    (servers, server_name) = instance_lookup(tags)
+
+    srvnumber=1 
+    choicetoiid=[]
+    choicetoiid.insert(0, None)
+    target=None
+
+    if (len(servers) > 1):
+        print 'We found multiple servers - please choose' 
+    
+        for id, hostname in servers.iteritems():
+            choicetoiid.append(hostname)
+            print "({0:<5} {1:20} {2:20}".format(srvnumber, server_name[id], hostname)
+            srvnumber += 1
+    
+        try:
+            srvchoice = int(raw_input("Number: "))
+            target=choicetoiid[srvchoice]
+        except ValueError, e:
+            print 'Wrong choice'
+            sys.exit(1)
+       
+    else:
+        for id, ip in servers.iteritems():
+            target=ip
+
+    if target is None:
+        print 'No servers found'
+        sys.exit(0)
+
+    ssh_args = 'ssh' + ' ' + str(target) + ' ' + post_ssh_args
+    ssh_args = shlex.split(ssh_args)
+
+    print 'Connecting to ' + target
+    subprocess.call(ssh_args)
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (KeyboardInterrupt, SystemExit):
+        sys.exit(0)
