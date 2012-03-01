@@ -190,7 +190,7 @@ def main():
     
         for id, hostname in servers.iteritems():
             choicetoiid.append(hostname)
-            print "({0:<5} {1:20} {2:20}".format(srvnumber, server_name[id], hostname)
+            print "({0:<3} {1:<10} {2:<20} {3}".format(srvnumber, id, server_name[id],  hostname)
             srvnumber += 1
     
         try:
@@ -211,7 +211,7 @@ def main():
     ssh_args = 'ssh' + ' ' + str(target) + ' ' + post_ssh_args
     ssh_args = shlex.split(ssh_args)
 
-    print 'Connecting to ' + target
+    print 'Connecting to ' + target + ' (' + id + ')'
     subprocess.call(ssh_args)
 
 if __name__ == "__main__":
