@@ -181,37 +181,43 @@ def main():
     (servers, server_name) = instance_lookup(tags)
 
     srvnumber=1 
-    choicetoiid=[]
-    choicetoiid.insert(0, None)
-    target=None
+    selected_id=[]
+    selected_host=[]
+    selected_id.insert(0, None)
+    selected_host.insert(0, None)
+    target_host=None
+    target_id=None
+
+    if (len(servers) == 0):
+        print 'No servers found'
+        sys.exit(0)
 
     if (len(servers) > 1):
         print 'We found multiple servers - please choose' 
     
         for id, hostname in servers.iteritems():
-            choicetoiid.append(hostname)
+            selected_host.append(hostname)
+            selected_id.append(id)
             print "({0:<3} {1:<10} {2:<20} {3}".format(srvnumber, id, server_name[id],  hostname)
             srvnumber += 1
     
         try:
-            srvchoice = int(raw_input("Number: "))
-            target=choicetoiid[srvchoice]
-        except ValueError, e:
-            print 'Wrong choice'
+            selection = int(raw_input("Number: "))
+            target_host=selected_host[selection]
+            target_id=selected_id[selection]
+        except (ValueError, IndexError), e:
+            print 'Wrong choice: ' + str(e)
             sys.exit(1)
        
     else:
-        for id, ip in servers.iteritems():
-            target=ip
+        for id, hostname in servers.iteritems():
+            target_host=hostname
+            target_id=id
 
-    if target is None:
-        print 'No servers found'
-        sys.exit(0)
-
-    ssh_args = 'ssh' + ' ' + str(target) + ' ' + post_ssh_args
+    ssh_args = 'ssh' + ' ' + str(target_host) + ' ' + post_ssh_args
     ssh_args = shlex.split(ssh_args)
 
-    print 'Connecting to ' + target + ' (' + id + ')'
+    print 'Connecting to ' + target_host + ' (' + target_id + ')'
     subprocess.call(ssh_args)
 
 if __name__ == "__main__":
