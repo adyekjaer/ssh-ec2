@@ -67,10 +67,9 @@ def populate_cache():
                 # For each tag we check if server has it
                 for tag in tags:
                     # Does this server have the tag
-                    if instance.tags.get(tag):
+                    if tag in instance.tags:
                         value = instance.tags.get(tag)
                         key=tag.lower() + ':' + value.lower()
-    
                         if key not in ids_by_tag:
                             ids_by_tag[key]=instance.id
                         else:
