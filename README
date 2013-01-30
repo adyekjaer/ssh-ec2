@@ -4,7 +4,7 @@ Features:
 
 * Spans all regions 
 * Uses cache to do really quick lookups
-* Uses AND logic on tags ( kinda ) 
+* Searches for servers matching part or entire tag
 * Lists servers if your filtering results in more than one server
 * Uses any tag ( Don't name your servers like pets )
 * Can pass any flag on to ssh like -l <username> -p <port> -L ...
@@ -26,7 +26,7 @@ Cache populated - xxx servers found
 
 Lets log in to a server in the testing environment ( tag = env:testing )
 
-# ssh-ec2 --tag 'env:testing'
+# ssh-ec2 testing
 We found multiple servers - please choose
 (1     TestingFrontend        ec2-.....
 (2     TestingJenkins         ec2-.....
@@ -35,10 +35,10 @@ Number:
 
 Log in to a specific server with user ubuntu and key mykey.pem  ( tag = env:staging and role:frontend )
 
-# ssh-ec2 --tag 'env:testing,role:frontend' -l ubuntu -i mykey.pem
+# ssh-ec2 testing frontend -l ubuntu -i mykey.pem
 
 Log in with the name tag
-# ssh-ec2 --tag 'name:MyFavoriteServer'
+# ssh-ec2 MyFavoriteServer
 
 Requirements:
 

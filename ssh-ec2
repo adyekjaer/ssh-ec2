@@ -96,7 +96,7 @@ def populate_cache():
     else:
         print >>sys.stderr, 'Cache populated - ' + str(server_count) + ' servers found'
 
-def instance_search(needles=['testing','fullstack'] ):
+def instance_search(search_list):
 
     cache_file_fh = open(cache_file, 'rb')
 
@@ -109,15 +109,16 @@ def instance_search(needles=['testing','fullstack'] ):
     dict_of_sets={}
     found_instances=set()
     
-    for needle in needles:
+    for keyword in search_list:
+        keyword_string=str(keyword)
         for k, v in instances_and_tags.iteritems():
             for v_tag in v:
-                match = re.search(needle, v_tag)
+                match = re.search(keyword, v_tag)
                 if match:
-                    if needle not in dict_of_sets:
-                        dict_of_sets[needle]=set([k])
+                    if keyword not in dict_of_sets:
+                        dict_of_sets[keyword_string]=set([k])
                     else:
-                        dict_of_sets[needle].add(k)
+                        dict_of_sets[keyword_string].add(k)
 
     for k, v in dict_of_sets.iteritems():
         if len(v) > 0:
@@ -128,10 +129,9 @@ def instance_search(needles=['testing','fullstack'] ):
 
     return found_instances, instances_and_name, instances_and_dns
 
-
 def usage():
     print >>sys.stderr, 'Usage:'
-    print >>sys.stderr, '    ' + sys.argv[0] + " --tag 'name:host1,environmet:testing'\tConnect to EC2 instance specified by tag(s)"
+    print >>sys.stderr, '    ' + sys.argv[0] + " tag1 tag2... \tConnect to EC2 instance searched for by tag(s)"
     print >>sys.stderr, '    ' + sys.argv[0] + " --update-cache\tUpdate the cache"
     sys.exit(1)
 
@@ -139,13 +139,15 @@ def main():
 
     index_selector={}
     target=None
+    post_ssh_args=[]
+    search_list=[]
 
-    """
     if (len(sys.argv) < 2):
         usage()
 
+    # Catch the regular stuff like help and update-cache
     try:
-        opts, args = getopt.getopt(sys.argv[1:3], '', ['help', 'update-cache'])
+        opts, args = getopt.getopt(sys.argv[1:], '', ['help', 'update-cache'])
     except getopt.GetoptError, err:
         print >>sys.stderr, str(err) 
         return 1
@@ -153,18 +155,27 @@ def main():
     for o, a in opts:
         if o in ('-h', '--help'):
             usage()
+            sys.exit(0)
         elif o in ('--update-cache'):
             populate_cache()
             sys.exit(0)
 
-    """
-    # Build arguments for ssh
-    post_ssh_args=''
-    for arg in sys.argv[3:]:
-         post_ssh_args += arg + ' '
+    # Catch the rest as search strings until we meet something starting with a -
+    for arg in sys.argv[1:]:
+        if arg in [ '--help', '--update-cache' ]:
+            usage()
+            sys.exit(0)
+        elif arg.startswith('-') or arg.startswith('--') or len(post_ssh_args) > 0:
+            post_ssh_args.append(arg)
+        elif len(post_ssh_args) == 0:
+            search_list.append(arg.lower())
 
+    if len(search_list) == 0:
+        print 'No search words defined'
+        sys.exit(1)
+   
     check_cache()
-    found_instances, instances_and_name, instances_and_dns=instance_search()
+    found_instances, instances_and_name, instances_and_dns=instance_search(search_list)
 
     if (len(found_instances) == 0):
         print 'No servers found'
@@ -175,11 +186,10 @@ def main():
 
         for index, instance_id in enumerate(found_instances):
             if len(instances_and_dns[instance_id]) == 0:
-                print index+1, instance_id, 'stopped'
                 print "({0:<3} {1:<10} {2:<20} {3}".format(index+1, instance_id, instances_and_name[instance_id],  'stopped')
             else: 
                 print "({0:<3} {1:<10} {2:<20} {3}".format(index+1, instance_id, instances_and_name[instance_id], instances_and_dns[instance_id])
-                index_selector[index+1]=instances_and_dns[instance_id]
+            index_selector[index+1]=instances_and_dns[instance_id]
     
         try:
             selection = int(raw_input("Number: "))
@@ -193,16 +203,17 @@ def main():
     else:
         instance_id=found_instances.pop()
         target=instances_and_dns[instance_id]
-        if target in ['', None]:
-            print 'Could not determine hostname from instance id %s (%s)' % (instance_id, instances_and_name[instance_id])
-            sys.exit(1)
-        
 
-    ssh_args = 'ssh' + ' ' + str(target) + ' ' + post_ssh_args
+    # Check that public IP is available
+    if target in ['', None]:
+        print 'Could not determine hostname from instance id %s (%s)' % (instance_id, instances_and_name[instance_id])
+        sys.exit(1)
+        
+    ssh_args = 'ssh' + ' ' + str(target) + ' ' + ' '.join(post_ssh_args)
     ssh_args = shlex.split(ssh_args)
 
     print 'Connecting to ' + target 
-    #subprocess.call(ssh_args)
+    subprocess.call(ssh_args)
 
 if __name__ == "__main__":
     try:
