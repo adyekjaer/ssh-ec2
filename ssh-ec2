@@ -96,7 +96,7 @@ def populate_cache():
     else:
         print >>sys.stderr, 'Cache populated - ' + str(server_count) + ' servers found'
 
-def instance_search(needles=['testing','fullstack' ] ):
+def instance_search(needles=['testing','fullstack'] ):
 
     cache_file_fh = open(cache_file, 'rb')
 
@@ -137,6 +137,9 @@ def usage():
 
 def main():
 
+    index_selector={}
+    target=None
+
     """
     if (len(sys.argv) < 2):
         usage()
@@ -154,11 +157,12 @@ def main():
             populate_cache()
             sys.exit(0)
 
+    """
     # Build arguments for ssh
     post_ssh_args=''
     for arg in sys.argv[3:]:
          post_ssh_args += arg + ' '
-    """
+
     check_cache()
     found_instances, instances_and_name, instances_and_dns=instance_search()
 
@@ -166,44 +170,39 @@ def main():
         print 'No servers found'
         sys.exit(0)
 
-    for index, item in enumerate(found_instances):
-        if len(instances_and_dns[item]) == 0:
-            print index+1, item, 'stopped'
-            #jprint "({0:<3} {1:<10} {2:<20} {3}".format(index+1, item, server_name[id],  hostname)
-            print "({0:<3} {1:<10} {2:<20} {3}".format(index+1, item, instances_and_name[item],  'stopped')
-        else: 
-            print "({0:<3} {1:<10} {2:<20} {3}".format(index+1, item, instances_and_name[item], instances_and_dns[item])
-            #print index+1, item, instances_and_dns[item]
-    """
-    if (len(servers) > 1):
+    if (len(found_instances) > 1):
         print 'We found multiple servers - please choose' 
-    
-        for id, hostname in servers.iteritems():
-            selected_host.append(hostname)
-            selected_id.append(id)
-            print "({0:<3} {1:<10} {2:<20} {3}".format(srvnumber, id, server_name[id],  hostname)
-            srvnumber += 1
+
+        for index, instance_id in enumerate(found_instances):
+            if len(instances_and_dns[instance_id]) == 0:
+                print index+1, instance_id, 'stopped'
+                print "({0:<3} {1:<10} {2:<20} {3}".format(index+1, instance_id, instances_and_name[instance_id],  'stopped')
+            else: 
+                print "({0:<3} {1:<10} {2:<20} {3}".format(index+1, instance_id, instances_and_name[instance_id], instances_and_dns[instance_id])
+                index_selector[index+1]=instances_and_dns[instance_id]
     
         try:
             selection = int(raw_input("Number: "))
-            target_host=selected_host[selection]
-            target_id=selected_id[selection]
-        except (ValueError, IndexError), e:
-            print 'Wrong choice: ' + str(e)
+            target=index_selector[selection]
+        except (ValueError, IndexError, KeyError), e:
+            print 'Invalid choice: ' + str(e)
             sys.exit(1)
-       
+        except:
+            print 'Invalid choice!'
+            sys.exit(1)
     else:
-        for id, hostname in servers.iteritems():
-            target_host=hostname
-            target_id=id
+        instance_id=found_instances.pop()
+        target=instances_and_dns[instance_id]
+        if target in ['', None]:
+            print 'Could not determine hostname from instance id %s (%s)' % (instance_id, instances_and_name[instance_id])
+            sys.exit(1)
+        
 
-    ssh_args = 'ssh' + ' ' + str(target_host) + ' ' + post_ssh_args
+    ssh_args = 'ssh' + ' ' + str(target) + ' ' + post_ssh_args
     ssh_args = shlex.split(ssh_args)
 
-    print 'Connecting to ' + target_host + ' (' + target_id + ')'
-    subprocess.call(ssh_args)
-
-    """
+    print 'Connecting to ' + target 
+    #subprocess.call(ssh_args)
 
 if __name__ == "__main__":
     try:
