@@ -80,9 +80,6 @@ def populate_cache():
 
             server_count+=1
 
-        # To be removed
-        break
-
     cache.append(instances_and_tags)
     cache.append(instances_and_name)
     cache.append(instances_and_dns)
