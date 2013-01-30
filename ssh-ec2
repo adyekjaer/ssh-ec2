@@ -39,6 +39,7 @@ def populate_cache():
 
     list_of_tag_keys=[]
     instances_and_tags={}
+    instances_and_name={}
     instances_and_dns={}
     server_count=0
 
@@ -64,12 +65,18 @@ def populate_cache():
 
                 # For each tag we check if server has it
                 for key in list_of_tag_keys:
+        
+                    if key.lower() == 'name':
+                        instances_and_name[instance.id]=instance.tags.get(key).lower()
+
                     # Does this server have the tag
                     if key in instance.tags:
                         value = instance.tags.get(key).lower()
 
                         # Populate a dict of instance ids with associated tags
                         instances_and_tags[instance.id].append(value)
+                # Always add the instance id
+                instances_and_tags[instance.id].append(instance.id)
 
             server_count+=1
 
@@ -77,6 +84,7 @@ def populate_cache():
         break
 
     cache.append(instances_and_tags)
+    cache.append(instances_and_name)
     cache.append(instances_and_dns)
 
     pickle.dump(cache, cache_file_fh)
@@ -96,7 +104,8 @@ def instance_search(needles=['testing','fullstack' ] ):
     cache_file_fh.close()
 
     instances_and_tags=cache[0]
-    instances_and_dns=cache[1]
+    instances_and_name=cache[1]
+    instances_and_dns=cache[2]
     dict_of_sets={}
     found_instances=set()
     
@@ -117,7 +126,7 @@ def instance_search(needles=['testing','fullstack' ] ):
             else:
                 found_instances.intersection_update(v)
 
-    return found_instances, instances_and_dns
+    return found_instances, instances_and_name, instances_and_dns
 
 
 def usage():
@@ -151,7 +160,7 @@ def main():
          post_ssh_args += arg + ' '
     """
     check_cache()
-    found_instances, instances_and_dns=instance_search()
+    found_instances, instances_and_name, instances_and_dns=instance_search()
 
     if (len(found_instances) == 0):
         print 'No servers found'
@@ -161,9 +170,9 @@ def main():
         if len(instances_and_dns[item]) == 0:
             print index+1, item, 'stopped'
             #jprint "({0:<3} {1:<10} {2:<20} {3}".format(index+1, item, server_name[id],  hostname)
-            print "({0:<3} {1:<10} {2:<20} {3}".format(index+1, item, 'name here',  'stopped')
+            print "({0:<3} {1:<10} {2:<20} {3}".format(index+1, item, instances_and_name[item],  'stopped')
         else: 
-            print "({0:<3} {1:<10} {2:<20} {3}".format(index+1, item, 'name here', instances_and_dns[item])
+            print "({0:<3} {1:<10} {2:<20} {3}".format(index+1, item, instances_and_name[item], instances_and_dns[item])
             #print index+1, item, instances_and_dns[item]
     """
     if (len(servers) > 1):
