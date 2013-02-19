@@ -60,6 +60,8 @@ def populate_cache():
 
         for reservation in reservations:
             for instance in reservation.instances:
+                if instance.state == 'terminated':
+                    continue
                 instances_and_tags[instance.id]=[]
                 instances_and_dns[instance.id]=instance.public_dns_name
 
