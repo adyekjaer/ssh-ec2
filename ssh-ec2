@@ -1,116 +1,100 @@
-#!/usr/bin/env python
-import os
+#!/usr/bin/env python -u
 import sys
 import boto.ec2
 import getopt
-import pickle
-import time
 import subprocess
+import threading
+import Queue
 import shlex
 import re
 
-# Global cache file
-cache_file='/tmp/ssh-ec2.cache'
+# Create 3 global queues
+"""
+instanceid_and_tag
+instanceid_and_dns
+instanceid_and_name
+"""
+data_queues={'i_n_t' : None, 'i_n_d' : None, 'i_n_n' : None}
 
-def check_cache():
-    if not ( os.path.isfile(cache_file) ):
-        populate_cache()
+for queue in data_queues:
+    data_queues[queue] = Queue.Queue()
 
-    # Calculate file age
-    stat = os.stat(cache_file)
-    fileage = int(stat.st_mtime)
-    now = int(time.time())
-    delta = now - fileage
-
-    if (delta > 172800 ):
-        populate_cache()
-        return True
-    else:
-        return False
-
-def populate_cache():
- 
-    print >>sys.stderr, 'Please wait while we populate the cache'
-
-    # Open file for writing
-    cache_file_fh = open(cache_file, 'w+')
-
-    cache = []
-
-    list_of_tag_keys=[]
-    instances_and_tags={}
-    instances_and_name={}
-    instances_and_dns={}
-    server_count=0
-
+def start_workers():
     regions = boto.ec2.regions()
+    workers=[]
 
     for region in regions:
+        t = threading.Thread(target=work_on_region, args=(region,))
+        workers.append(t)
+        t.setDaemon(True)
+        t.start()
 
-        print 'Walking region ' + str(region.name)
+    return workers
 
+def work_on_region(region ):
+
+    i_n_t={}
+    i_n_n={}
+    i_n_d={}
+
+    try:
         conn = region.connect()
-        reservations = conn.get_all_instances()
-        tags=conn.get_all_tags()
-
-        for tag_object in tags:
-            tag = str(tag_object).split(':')[1]
-            if tag not in list_of_tag_keys:
-                list_of_tag_keys.append(tag)
-
-        for reservation in reservations:
-            for instance in reservation.instances:
-                if instance.state == 'terminated':
-                    continue
-                instances_and_tags[instance.id]=[]
-                instances_and_dns[instance.id]=instance.public_dns_name
-
-                # For each tag we check if server has it
-                for key in list_of_tag_keys:
-        
-                    if key.lower() == 'name':
-                        instances_and_name[instance.id]=instance.tags.get(key).lower()
-
-                    # Does this server have the tag
-                    if key in instance.tags:
-                        value = instance.tags.get(key).lower()
-
-                        # Populate a dict of instance ids with associated tags
-                        instances_and_tags[instance.id].append(value)
-                # Always add the instance id
-                instances_and_tags[instance.id].append(instance.id)
-
-            server_count+=1
-
-    cache.append(instances_and_tags)
-    cache.append(instances_and_name)
-    cache.append(instances_and_dns)
-
-    pickle.dump(cache, cache_file_fh)
-    cache_file_fh.close()
-
-    if (server_count == 0):
-        print >>sys.stderr, 'No servers found!'
+    except:
+        print >>sys.stderr, 'Failed to connect to ' + str(region.name)
         sys.exit(1)
-    else:
-        print >>sys.stderr, 'Cache populated - ' + str(server_count) + ' servers found'
+    
+    reservations = conn.get_all_instances()
+
+    for reservation in reservations:
+        for instance in reservation.instances:
+
+            if instance.state == 'terminated':
+                continue
+
+            i_n_d[instance.id]=instance.public_dns_name
+
+            i_n_t[instance.id] = instance.tags.values()
+            i_n_t[instance.id].append(instance.id)
+
+            try:
+                i_n_n[instance.id]=instance.tags.get('Name').lower()
+            except:
+                continue
+
+    try:
+        data_queues['i_n_t'].put(i_n_t)
+        data_queues['i_n_n'].put(i_n_n)
+        data_queues['i_n_d'].put(i_n_d)
+    except:
+        print >>sys.stderr, 'Failed to write to data queues'
+        sys.exit(1)
 
 def instance_search(search_list):
 
-    cache_file_fh = open(cache_file, 'rb')
+    # Dicts
+    data_dicts={
+        'i_n_t' : {},
+        'i_n_n' : {},
+        'i_n_d' : {},
+    }
 
-    cache = pickle.load(cache_file_fh)
-    cache_file_fh.close()
+    for queue in data_queues:
+        while data_queues[queue].qsize() > 0:
+            try:
+                data_dicts[queue].update(data_queues[queue].get())
+            except Queue.Empty:
+                print >>sys.stderr, 'Failed to read from ' + str(queue) + ' queue - empty' 
+                sys.exit(1)
+            except:
+                print >>sys.stderr, 'Failed to read from ' + str(queue) + ' queue'
+                sys.exit(1)
 
-    instances_and_tags=cache[0]
-    instances_and_name=cache[1]
-    instances_and_dns=cache[2]
     dict_of_sets={}
     found_instances=set()
     
     for keyword in search_list:
         keyword_string=str(keyword)
-        for k, v in instances_and_tags.iteritems():
+        for k, v in data_dicts['i_n_t'].iteritems():
             for v_tag in v:
                 match = re.search(keyword, v_tag)
                 if match:
@@ -126,12 +110,11 @@ def instance_search(search_list):
             else:
                 found_instances.intersection_update(v)
 
-    return found_instances, instances_and_name, instances_and_dns
+    return found_instances, data_dicts['i_n_n'], data_dicts['i_n_d']
 
 def usage():
     print >>sys.stderr, 'Usage:'
     print >>sys.stderr, '    ' + sys.argv[0] + " tag1 tag2... \tConnect to EC2 instance searched for by tag(s)"
-    print >>sys.stderr, '    ' + sys.argv[0] + " --update-cache\tUpdate the cache"
     sys.exit(1)
 
 def main():
@@ -144,24 +127,21 @@ def main():
     if (len(sys.argv) < 2):
         usage()
 
-    # Catch the regular stuff like help and update-cache
+    # Catch the regular stuff like help
     try:
-        opts, args = getopt.getopt(sys.argv[1:], '', ['help', 'update-cache'])
+        opts, args = getopt.getopt(sys.argv[1:], '', ['help'])
     except getopt.GetoptError, err:
         print >>sys.stderr, str(err) 
         return 1
 
     for o, a in opts:
-        if o in ('-h', '--help'):
+        if o == '-h' or o  == '--help':
             usage()
-            sys.exit(0)
-        elif o in ('--update-cache'):
-            populate_cache()
             sys.exit(0)
 
     # Catch the rest as search strings until we meet something starting with a -
     for arg in sys.argv[1:]:
-        if arg in [ '--help', '--update-cache' ]:
+        if arg ==  '--help':
             usage()
             sys.exit(0)
         elif arg.startswith('-') or arg.startswith('--') or len(post_ssh_args) > 0:
@@ -169,12 +149,18 @@ def main():
         elif len(post_ssh_args) == 0:
             search_list.append(arg.lower())
 
+    # Spawn workers as fast as possible
+    workers = start_workers()
+
+    # Summon threads
+    for thread in workers:
+        thread.join()
+
     if len(search_list) == 0:
         print 'No search words defined'
         sys.exit(1)
    
-    check_cache()
-    found_instances, instances_and_name, instances_and_dns=instance_search(search_list)
+    found_instances, i_n_n, i_n_d=instance_search(search_list)
 
     if (len(found_instances) == 0):
         print 'No servers found'
@@ -184,28 +170,31 @@ def main():
         print 'We found multiple servers - please choose' 
 
         for index, instance_id in enumerate(found_instances):
-            if len(instances_and_dns[instance_id]) == 0:
-                print "({0:<3} {1:<10} {2:<20} {3}".format(index+1, instance_id, instances_and_name[instance_id],  'stopped')
+            if len(i_n_d[instance_id]) == 0:
+                print "({0:<3} {1:<10} {2:<20} {3}".format(index+1, instance_id, i_n_n[instance_id],  'stopped')
             else: 
-                print "({0:<3} {1:<10} {2:<20} {3}".format(index+1, instance_id, instances_and_name[instance_id], instances_and_dns[instance_id])
-            index_selector[index+1]=instances_and_dns[instance_id]
+                print "({0:<3} {1:<10} {2:<20} {3}".format(index+1, instance_id, i_n_n[instance_id], i_n_d[instance_id])
+            index_selector[index+1]=i_n_d[instance_id]
     
         try:
             selection = int(raw_input("Number: "))
             target=index_selector[selection]
+        except (KeyboardInterrupt):
+            print '\nSee you..'
+            sys.exit(1)
         except (ValueError, IndexError, KeyError), e:
-            print 'Invalid choice: ' + str(e)
+            print '\nInvalid choice: ' + str(e)
             sys.exit(1)
         except:
-            print 'Invalid choice!'
+            print '\nInvalid choice!'
             sys.exit(1)
     else:
         instance_id=found_instances.pop()
-        target=instances_and_dns[instance_id]
+        target=i_n_d[instance_id]
 
     # Check that public IP is available
     if target in ['', None]:
-        print 'Could not determine hostname from instance id %s (%s)' % (instance_id, instances_and_name[instance_id])
+        print 'Could not determine hostname from instance id %s (%s)' % (instance_id, i_n_n[instance_id])
         sys.exit(1)
         
     ssh_args = 'ssh' + ' ' + str(target) + ' ' + ' '.join(post_ssh_args)

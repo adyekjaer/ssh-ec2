@@ -3,26 +3,12 @@ Alternative to Instagram / ec2-ssh for fun and profit...
 Features:
 
 * Spans all regions 
-* Uses cache to do really quick lookups
 * Searches for servers matching part or entire tag
 * Lists servers if your filtering results in more than one server
 * Uses any tag ( Don't name your servers like pets )
 * Can pass any flag on to ssh like -l <username> -p <port> -L ...
 
 Usage:
-
-Populate cache:
-
-# ssh-ec2 --update-cache
-Please wait while we populate the cache
-Walking region eu-west-1
-Walking region sa-east-1
-Walking region us-east-1
-Walking region ap-northeast-1
-Walking region us-west-2
-Walking region us-west-1
-Walking region ap-southeast-1
-Cache populated - xxx servers found
 
 Lets log in to a server in the testing environment ( tag = env:testing )
 
