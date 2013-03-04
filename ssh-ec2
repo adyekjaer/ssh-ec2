@@ -53,7 +53,8 @@ def work_on_region(region ):
 
             i_n_d[instance.id]=instance.public_dns_name
 
-            i_n_t[instance.id] = instance.tags.values()
+            # Lower all values in tag list
+            i_n_t[instance.id] = map(lambda x: x.lower(), instance.tags.values())
             i_n_t[instance.id].append(instance.id)
 
             try:
