@@ -90,6 +90,8 @@ def instance_search(search_list):
                 print >>sys.stderr, 'Failed to read from ' + str(queue) + ' queue'
                 sys.exit(1)
 
+    print 'Searching through ' + str(len(data_dicts['i_n_d'])) + ' servers'
+
     dict_of_sets={}
     found_instances=set()
     
