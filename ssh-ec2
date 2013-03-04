@@ -177,11 +177,11 @@ def main():
                 print "({0:<3} {1:<10} {2:<20} {3}".format(index+1, instance_id, i_n_n[instance_id],  'stopped')
             else: 
                 print "({0:<3} {1:<10} {2:<20} {3}".format(index+1, instance_id, i_n_n[instance_id], i_n_d[instance_id])
-            index_selector[index+1]=i_n_d[instance_id]
+            index_selector[index+1]=instance_id
     
         try:
             selection = int(raw_input("Number: "))
-            target=index_selector[selection]
+            target=i_n_d[index_selector[selection]]
         except (KeyboardInterrupt):
             print '\nSee you..'
             sys.exit(1)
@@ -191,15 +191,17 @@ def main():
         except:
             print '\nInvalid choice!'
             sys.exit(1)
+
+        instance_id=index_selector[selection]
+        target=i_n_d[instance_id]
     else:
         instance_id=found_instances.pop()
         target=i_n_d[instance_id]
 
-    # Check that public IP is available
     if target in ['', None]:
         print 'Could not determine hostname from instance id %s (%s)' % (instance_id, i_n_n[instance_id])
         sys.exit(1)
-        
+
     ssh_args = 'ssh' + ' ' + str(target) + ' ' + ' '.join(post_ssh_args)
     ssh_args = shlex.split(ssh_args)
 
