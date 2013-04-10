@@ -157,7 +157,7 @@ def main():
 
     # Summon threads
     for thread in workers:
-        thread.join()
+        thread.join(1.0)
 
     if len(search_list) == 0:
         print 'No search words defined'
