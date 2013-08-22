@@ -264,6 +264,7 @@ def main():
 
     print 'Connecting to ' + target 
     subprocess.call(ssh_args)
+    wait_for_workers(workers, done_waiting)
 
 if __name__ == "__main__":
     try:
