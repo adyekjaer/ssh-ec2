@@ -7,6 +7,9 @@ import threading
 import Queue
 import shlex
 import re
+import os
+import pickle
+import time
 
 # Create 3 global queues
 """
@@ -15,6 +18,7 @@ instanceid_and_dns
 instanceid_and_name
 """
 data_queues={'i_n_t' : None, 'i_n_d' : None, 'i_n_n' : None}
+cache_file='/tmp/ssh-ec2.pickle'
 
 for queue in data_queues:
     data_queues[queue] = Queue.Queue()
@@ -70,7 +74,7 @@ def work_on_region(region ):
         print >>sys.stderr, 'Failed to write to data queues'
         sys.exit(1)
 
-def instance_search(search_list):
+def data_from_workers():
 
     # Dicts
     data_dicts={
@@ -89,6 +93,30 @@ def instance_search(search_list):
             except:
                 print >>sys.stderr, 'Failed to read from ' + str(queue) + ' queue'
                 sys.exit(1)
+
+    return data_dicts
+
+def data_from_cache():
+    try:
+        return pickle.load( open( cache_file, "rb" ) )
+    except:
+        print 'Failed to read cache - deleting cache'
+        try:
+            os.remove(cache_file)
+        except:
+            print 'Failed to delete cache - please delete %s manually' % (cache_file)
+
+        sys.exit(1)
+
+
+def data_to_cache(data_dicts):
+    try:
+        pickle.dump( data_dicts, open( cache_file, "wb" ) )
+    except:
+        print 'Failed to dump cache'
+        sys.exit(1)
+
+def instance_search(search_list, data_dicts):
 
     print 'Searching through ' + str(len(data_dicts['i_n_d'])) + ' servers'
 
@@ -115,10 +143,31 @@ def instance_search(search_list):
 
     return found_instances, data_dicts['i_n_n'], data_dicts['i_n_d']
 
+def cache_exists():
+    if os.path.isfile(cache_file):
+        age = int((time.time() - os.path.getmtime(cache_file)) / 60)
+        print 'Using %d minute old cache file' % ( age )
+        return True
+    else:
+        return False
+
 def usage():
     print >>sys.stderr, 'Usage:'
     print >>sys.stderr, '    ' + sys.argv[0] + " tag1 tag2... \tConnect to EC2 instance searched for by tag(s)"
     sys.exit(1)
+
+def wait_for_workers(workers, done_waiting):
+    if done_waiting:
+        return
+
+    # Summon threads
+    for thread in workers:
+        thread.join(2.0)
+
+    data_dicts = data_from_workers()
+    data_to_cache(data_dicts)
+
+    return data_dicts
 
 def main():
 
@@ -126,6 +175,7 @@ def main():
     target=None
     post_ssh_args=[]
     search_list=[]
+    done_waiting=False
 
     if (len(sys.argv) < 2):
         usage()
@@ -152,22 +202,25 @@ def main():
         elif len(post_ssh_args) == 0:
             search_list.append(arg.lower())
 
-    # Spawn workers as fast as possible
-    workers = start_workers()
-
-    # Summon threads
-    for thread in workers:
-        thread.join(1.0)
-
     if len(search_list) == 0:
         print 'No search words defined'
         sys.exit(1)
-   
-    found_instances, i_n_n, i_n_d=instance_search(search_list)
+
+    # Spawn workers as fast as possible
+    workers = start_workers()
+
+    if cache_exists():
+        data_dicts = data_from_cache()
+    else:
+        data_dicts = wait_for_workers(workers, done_waiting)
+        done_waiting=True
+
+    found_instances, i_n_n, i_n_d=instance_search(search_list, data_dicts)
 
     if (len(found_instances) == 0):
         print 'No servers found'
-        sys.exit(0)
+        wait_for_workers(workers, done_waiting)
+        sys.exit(1)
 
     if (len(found_instances) > 1):
         print 'We found multiple servers - please choose' 
@@ -184,12 +237,15 @@ def main():
             target=i_n_d[index_selector[selection]]
         except (KeyboardInterrupt):
             print '\nSee you..'
-            sys.exit(1)
+            wait_for_workers(workers, done_waiting)
+            sys.exit(0)
         except (ValueError, IndexError, KeyError), e:
             print '\nInvalid choice: ' + str(e)
+            wait_for_workers(workers, done_waiting)
             sys.exit(1)
         except:
             print '\nInvalid choice!'
+            wait_for_workers(workers, done_waiting)
             sys.exit(1)
 
         instance_id=index_selector[selection]
@@ -200,6 +256,7 @@ def main():
 
     if target in ['', None]:
         print 'Could not determine hostname from instance id %s (%s)' % (instance_id, i_n_n[instance_id])
+        wait_for_workers(workers, done_waiting)
         sys.exit(1)
 
     ssh_args = 'ssh' + ' ' + str(target) + ' ' + ' '.join(post_ssh_args)
