@@ -263,8 +263,17 @@ def main():
     ssh_args = shlex.split(ssh_args)
 
     print 'Connecting to ' + target 
-    subprocess.call(ssh_args)
-    wait_for_workers(workers, done_waiting)
+
+    try:
+        subprocess.call(ssh_args)
+    except (KeyboardInterrupt):
+        print '\nSee you..'
+        wait_for_workers(workers, done_waiting)
+        sys.exit(0)
+    except:
+        wait_for_workers(workers, done_waiting)
+    else:
+        wait_for_workers(workers, done_waiting)
 
 if __name__ == "__main__":
     try:
