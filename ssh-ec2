@@ -1,4 +1,4 @@
-#!/usr/bin/env python -u
+#!/usr/bin/env python -u -W ignore::DeprecationWarning
 import sys
 import boto.ec2
 import getopt
@@ -28,26 +28,29 @@ def start_workers():
     workers=[]
 
     for region in regions:
-        t = threading.Thread(target=work_on_region, args=(region,))
+        t = threading.Thread(target=work_on_region, args=(region.name,))
         workers.append(t)
         t.setDaemon(True)
         t.start()
 
     return workers
 
-def work_on_region(region ):
+def work_on_region(region):
 
     i_n_t={}
     i_n_n={}
     i_n_d={}
 
     try:
-        conn = region.connect()
+        conn = boto.ec2.connect_to_region(region)
     except:
-        print >>sys.stderr, 'Failed to connect to ' + str(region.name)
+        print >>sys.stderr, 'Failed to connect to ' + str(region)
         sys.exit(1)
-    
-    reservations = conn.get_all_instances()
+   
+    try: 
+        reservations = conn.get_all_instances()
+    except:
+        sys.exit(1)
 
     for reservation in reservations:
         for instance in reservation.instances:
